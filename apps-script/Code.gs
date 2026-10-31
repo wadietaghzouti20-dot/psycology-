@@ -369,8 +369,15 @@ function setting_(key, fallback) {
   const sheet = getSpreadsheet_().getSheetByName("Settings");
   if (!sheet || sheet.getLastRow() < 2) return String(fallback);
   const rows = sheet.getRange(2, 1, sheet.getLastRow() - 1, 2).getValues();
-  const row = rows.find(r => String(r[0]) === key);
-  return row ? String(row[1]) : String(fallback);
+  const row = rows.find(r => String(r[0]).trim() === key);
+  if (!row) return String(fallback);
+  const value = row[1];
+  // Google Sheets may store 09:00 / 17:00 as Date objects, not text.
+  // Normalize those cells to HH:mm before the availability engine parses them.
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return Utilities.formatDate(value, TZ, "HH:mm");
+  }
+  return String(value).trim();
 }
 
 function clinicName_() {

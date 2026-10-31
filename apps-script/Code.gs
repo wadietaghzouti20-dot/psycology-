@@ -399,9 +399,13 @@ function sheetDateString_(value) {
     : String(value || "");
 }
 function parseLocalDateTime_(dateString, timeString) {
-  const p = String(dateString).split("-").map(Number);
-  const t = String(timeString).split(":").map(Number);
-  return new Date(p[0], p[1] - 1, p[2], t[0], t[1], 0, 0);
+  // Parse explicitly in the clinic timezone, independent of the Apps Script
+  // project's configured timezone.
+  return Utilities.parseDate(
+    String(dateString) + " " + String(timeString),
+    TZ,
+    "yyyy-MM-dd HH:mm"
+  );
 }
 function ensureSheet_(ss, name, headers) {
   let sheet = ss.getSheetByName(name);

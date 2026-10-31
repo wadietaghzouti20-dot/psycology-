@@ -153,7 +153,7 @@ function getAvailabilityDiagnostic_(dateString, service, slotCount) {
     slotCount: slotCount,
     reason: "Aucun créneau ne correspond aux règles de disponibilité."
   };
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(info.date)) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(info.date)) {
     info.reason = "La date reçue par le serveur est invalide.";
     return info;
   }

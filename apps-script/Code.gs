@@ -72,10 +72,15 @@ function doPost(e) {
   try {
     const body = JSON.parse(e && e.postData && e.postData.contents ? e.postData.contents : "{}");
     if (body.action === "availability") {
+      const slots = getAvailableSlots_(body.preferredDate, body.service);
+      const diagnostic = getAvailabilityDiagnostic_(body.preferredDate, body.service, slots.length);
       return json_({
         success: true,
-        availableSlots: getAvailableSlots_(body.preferredDate, body.service),
-        message: "Créneaux disponibles au moment de la vérification."
+        availableSlots: slots,
+        message: slots.length
+          ? "Créneaux disponibles au moment de la vérification."
+          : "Aucun créneau trouvé. Diagnostic : " + diagnostic.reason,
+        diagnostic: diagnostic
       });
     }
     return json_(createAppointment_(body));
@@ -139,6 +144,51 @@ function validateBooking_(d) {
   if (digits.length < 8 || digits.length > 15) throw new Error("Numéro de téléphone invalide.");
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(d.email || ""))) throw new Error("Adresse e-mail invalide.");
   if (String(d.notes || "").length > 1000) throw new Error("Message trop long.");
+}
+
+function getAvailabilityDiagnostic_(dateString, service, slotCount) {
+  const info = {
+    date: String(dateString || ""),
+    service: String(service || ""),
+    slotCount: slotCount,
+    reason: "Aucun créneau ne correspond aux règles de disponibilité."
+  };
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(info.date)) {
+    info.reason = "La date reçue par le serveur est invalide.";
+    return info;
+  }
+  if (!Object.prototype.hasOwnProperty.call(SERVICES, service)) {
+    info.reason = "Le motif reçu ne correspond à aucun service configuré.";
+    return info;
+  }
+  const date = new Date(info.date + "T12:00:00");
+  if (isNaN(date.getTime()) || Utilities.formatDate(date, TZ, "yyyy-MM-dd") !== info.date) {
+    info.reason = "La date n'a pas pu être interprétée dans le fuseau Africa/Algiers.";
+    return info;
+  }
+  const today = Utilities.formatDate(new Date(), TZ, "yyyy-MM-dd");
+  const maxDate = new Date();
+  maxDate.setDate(maxDate.getDate() + Number(setting_("ADVANCE_DAYS", 90)));
+  const lastDate = Utilities.formatDate(maxDate, TZ, "yyyy-MM-dd");
+  const day = Number(Utilities.formatDate(date, TZ, "u")) % 7;
+  const workingDays = setting_("WORKING_DAYS", "1,2,3,4,5,6").split(",").map(Number);
+  info.todayInAlgiers = today;
+  info.lastBookableDate = lastDate;
+  info.weekdayNumber = day;
+  info.workingDays = workingDays;
+  info.openTime = setting_("OPEN_TIME", "09:00");
+  info.closeTime = setting_("CLOSE_TIME", "17:00");
+  info.durationMinutes = SERVICES[service];
+  info.bookedIntervals = getBookedIntervals_(info.date).length;
+  info.calendarEvents = getCalendarIntervals_(info.date).length;
+  if (info.date < today) info.reason = "La date sélectionnée est passée.";
+  else if (info.date > lastDate) info.reason = "La date dépasse la période de réservation autorisée.";
+  else if (workingDays.indexOf(day) === -1) info.reason = "Ce jour n'est pas inclus dans WORKING_DAYS.";
+  else if (minutes_(info.openTime) + info.durationMinutes > minutes_(info.closeTime)) info.reason = "La durée du service ne rentre pas dans les heures d'ouverture.";
+  else if (slotCount === 0 && info.calendarEvents > 0) info.reason = "Le calendrier contient " + info.calendarEvents + " événement(s) ce jour-là qui peuvent bloquer les créneaux.";
+  else if (slotCount === 0 && info.bookedIntervals > 0) info.reason = "La feuille Appointments contient " + info.bookedIntervals + " rendez-vous confirmés ce jour-là.";
+  else if (slotCount === 0) info.reason = "La date et les horaires sont valides, mais aucun créneau n'a passé le contrôle final. Vérifions les paramètres et le fuseau horaire du projet Apps Script.";
+  return info;
 }
 
 function getAvailableSlots_(dateString, service) {
